@@ -1,39 +1,75 @@
 name: Cleanup old releases
 
-# Manual only — Actions tab → this workflow → Run workflow
+# Manual only — keeps one rolling release per app slug (e.g. `vyrel`).
+# Deletes older tags for that app (`vyrel-*`) without touching other apps.
 on:
   workflow_dispatch:
+    inputs:
+      app_slug:
+        description: App slot to clean (rolling release tag to keep)
+        required: true
+        default: vyrel
+        type: string
+      delete_legacy_dev_tags:
+        description: Also delete legacy timestamp tags like dev-YYYYMMDD-*
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 jobs:
-  keep-latest-only:
+  keep-app-slot:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete every release except the newest
+      - name: Delete old releases for app slug
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          APP_SLUG: ${{ inputs.app_slug }}
+          DELETE_LEGACY: ${{ inputs.delete_legacy_dev_tags }}
         run: |
           set -euo pipefail
+
+          if [[ ! "$APP_SLUG" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            echo "::error::Invalid app_slug: $APP_SLUG"
+            exit 1
+          fi
+
+          KEEP_TAG="$APP_SLUG"
+          echo "Keeping rolling release: $KEEP_TAG"
 
           mapfile -t TAGS < <(
             gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName'
           )
 
           if [[ ${#TAGS[@]} -eq 0 ]]; then
-            echo "No releases found. Nothing to do."
+            echo "No releases found."
             exit 0
           fi
 
-          LATEST_TAG="${TAGS[0]}"
-          echo "Keeping latest release: $LATEST_TAG"
-          echo "Found $((${#TAGS[@]} - 1)) older release(s) to delete."
+          deleted=0
+          for TAG in "${TAGS[@]}"; do
+            if [[ "$TAG" == "$KEEP_TAG" ]]; then
+              continue
+            fi
 
-          for TAG in "${TAGS[@]:1}"; do
-            echo "Deleting release and tag: $TAG"
-            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
+            should_delete=false
+            if [[ "$TAG" == "$APP_SLUG"-* ]]; then
+              should_delete=true
+            fi
+            if [[ "$DELETE_LEGACY" == "true" && "$TAG" == dev-* ]]; then
+              should_delete=true
+            fi
+
+            if [[ "$should_delete" == "true" ]]; then
+              echo "Deleting release and tag: $TAG"
+              gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
+              deleted=$((deleted + 1))
+            else
+              echo "Skipping (other app or unrelated): $TAG"
+            fi
           done
 
-          echo "Done. Only $LATEST_TAG remains."
+          echo "Done. Kept '$KEEP_TAG'. Deleted $deleted release(s)."
