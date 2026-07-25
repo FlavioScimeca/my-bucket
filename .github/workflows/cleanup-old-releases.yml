@@ -1,0 +1,39 @@
+name: Cleanup old releases
+
+# Manual only — Actions tab → this workflow → Run workflow
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keep-latest-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete every release except the newest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t TAGS < <(
+            gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName'
+          )
+
+          if [[ ${#TAGS[@]} -eq 0 ]]; then
+            echo "No releases found. Nothing to do."
+            exit 0
+          fi
+
+          LATEST_TAG="${TAGS[0]}"
+          echo "Keeping latest release: $LATEST_TAG"
+          echo "Found $((${#TAGS[@]} - 1)) older release(s) to delete."
+
+          for TAG in "${TAGS[@]:1}"; do
+            echo "Deleting release and tag: $TAG"
+            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
+          done
+
+          echo "Done. Only $LATEST_TAG remains."
