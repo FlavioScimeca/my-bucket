@@ -1,0 +1,4 @@
+# Allowed app slots for this bucket (one slug per line).
+# Used by cleanup-old-releases and latest-apk-qr workflows.
+vyrel
+placeholder-app
