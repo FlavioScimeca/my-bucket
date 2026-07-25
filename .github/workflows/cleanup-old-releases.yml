@@ -2,18 +2,15 @@ name: Cleanup old releases
 
 # Manual only — keeps one rolling release per app slug (e.g. `vyrel`).
 # Deletes older tags for that app (`vyrel-*`) without touching other apps.
-# When you add a new app slot, append its slug to `app_slug.options` below
-# (and in latest-apk-qr.yml).
+# Allowed slugs: `.github/app-slugs.txt`
 on:
   workflow_dispatch:
     inputs:
       app_slug:
-        description: App slot to clean (rolling release tag to keep)
+        description: App slot to clean (must be listed in .github/app-slugs.txt)
         required: true
         default: vyrel
-        type: choice
-        options:
-          - vyrel
+        type: string
       delete_legacy_dev_tags:
         description: Also delete legacy timestamp tags like dev-YYYYMMDD-*
         required: true
@@ -27,6 +24,13 @@ jobs:
   keep-app-slot:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout app-slugs registry
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github/app-slugs.txt
+          sparse-checkout-cone-mode: false
+
       - name: Delete old releases for app slug
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,6 +42,30 @@ jobs:
 
           if [[ ! "$APP_SLUG" =~ ^[a-z][a-z0-9-]*$ ]]; then
             echo "::error::Invalid app_slug: $APP_SLUG"
+            exit 1
+          fi
+
+          mapfile -t ALLOWED < <(
+            grep -E '^[a-z][a-z0-9-]*$' .github/app-slugs.txt || true
+          )
+
+          if [[ ${#ALLOWED[@]} -eq 0 ]]; then
+            echo "::error::No allowed slugs found in .github/app-slugs.txt"
+            exit 1
+          fi
+
+          allowed=false
+          for slug in "${ALLOWED[@]}"; do
+            if [[ "$slug" == "$APP_SLUG" ]]; then
+              allowed=true
+              break
+            fi
+          done
+
+          if [[ "$allowed" != "true" ]]; then
+            echo "::error::app_slug '$APP_SLUG' is not in .github/app-slugs.txt"
+            printf 'Allowed:\n'
+            printf '  - %s\n' "${ALLOWED[@]}"
             exit 1
           fi
 
