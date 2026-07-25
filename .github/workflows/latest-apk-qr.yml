@@ -1,0 +1,93 @@
+name: Latest APK link + QR
+
+# Manual only — Actions tab → this workflow → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      apk_name:
+        description: APK asset filename on the latest release
+        required: true
+        default: app-dev.apk
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  show-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve latest download URL
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          APK_NAME: ${{ inputs.apk_name }}
+        run: |
+          set -euo pipefail
+
+          TAG="$(
+            gh release view --repo "$REPO" --json tagName --jq '.tagName'
+          )"
+
+          # Prefer the stable "latest" URL when a latest release exists.
+          DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${APK_NAME}"
+
+          # Verify the asset exists on the latest release.
+          ASSET_COUNT="$(
+            gh release view --repo "$REPO" --json assets \
+              --jq --arg name "$APK_NAME" '[.assets[] | select(.name == $name)] | length'
+          )"
+
+          if [[ "$ASSET_COUNT" -eq 0 ]]; then
+            echo "::error::No asset named '${APK_NAME}' on the latest release (${TAG})."
+            gh release view --repo "$REPO" --json assets --jq '.assets[].name'
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "download_url=$DOWNLOAD_URL" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
+
+          echo "Latest tag: $TAG"
+          echo "Download URL: $DOWNLOAD_URL"
+
+      - name: Generate QR code image
+        env:
+          DOWNLOAD_URL: ${{ steps.latest.outputs.download_url }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qrencode
+          qrencode -o latest-apk-qr.png -s 10 -m 2 "$DOWNLOAD_URL"
+          ls -la latest-apk-qr.png
+
+      - name: Write job summary
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+          DOWNLOAD_URL: ${{ steps.latest.outputs.download_url }}
+          APK_NAME: ${{ steps.latest.outputs.apk_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Latest APK"
+            echo
+            echo "- **Tag:** \`$TAG\`"
+            echo "- **Asset:** \`$APK_NAME\`"
+            echo "- **Download:** $DOWNLOAD_URL"
+            echo
+            echo "### QR code"
+            echo
+            echo "Scan with your phone (also available as a workflow artifact):"
+            echo
+            echo '```'
+            qrencode -t ansiutf8 "$DOWNLOAD_URL"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload QR PNG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-apk-qr
+          path: latest-apk-qr.png
+          if-no-files-found: error
