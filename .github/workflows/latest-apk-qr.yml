@@ -1,13 +1,13 @@
 name: Latest APK link + QR
 
-# Manual only — Actions tab → this workflow → Run workflow
+# Manual only — prints the stable per-app download URL and QR code.
 on:
   workflow_dispatch:
     inputs:
-      apk_name:
-        description: APK asset filename on the latest release
+      app_slug:
+        description: App slot / rolling release tag (e.g. vyrel, kalyra)
         required: true
-        default: app-dev.apk
+        default: vyrel
         type: string
 
 permissions:
@@ -17,39 +17,47 @@ jobs:
   show-latest:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve latest download URL
+      - name: Resolve per-app download URL
         id: latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          APK_NAME: ${{ inputs.apk_name }}
+          APP_SLUG: ${{ inputs.app_slug }}
         run: |
           set -euo pipefail
 
-          TAG="$(
-            gh release view --repo "$REPO" --json tagName --jq '.tagName'
-          )"
+          if [[ ! "$APP_SLUG" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            echo "::error::Invalid app_slug: $APP_SLUG"
+            exit 1
+          fi
 
-          DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${APK_NAME}"
+          APK_NAME="${APP_SLUG}-dev-app.apk"
+          DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${APP_SLUG}/${APK_NAME}"
+
+          if ! gh release view "$APP_SLUG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::No rolling release tagged '${APP_SLUG}'."
+            gh release list --repo "$REPO" --limit 20
+            exit 1
+          fi
 
           ASSET_COUNT="$(
-            gh release view --repo "$REPO" --json assets \
+            gh release view "$APP_SLUG" --repo "$REPO" --json assets \
               --jq "[.assets[] | select(.name == \"${APK_NAME}\")] | length"
           )"
 
           if [[ "$ASSET_COUNT" -eq 0 ]]; then
-            echo "::error::No asset named '${APK_NAME}' on the latest release (${TAG})."
-            gh release view --repo "$REPO" --json assets --jq '.assets[].name'
+            echo "::error::Release '${APP_SLUG}' has no asset named '${APK_NAME}'."
+            gh release view "$APP_SLUG" --repo "$REPO" --json assets --jq '.assets[].name'
             exit 1
           fi
 
           {
-            echo "tag=$TAG"
-            echo "download_url=$DOWNLOAD_URL"
+            echo "app_slug=$APP_SLUG"
             echo "apk_name=$APK_NAME"
+            echo "download_url=$DOWNLOAD_URL"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Latest tag: $TAG"
+          echo "App: $APP_SLUG"
           echo "Download URL: $DOWNLOAD_URL"
 
       - name: Generate QR code image
@@ -64,15 +72,15 @@ jobs:
 
       - name: Write job summary
         env:
-          TAG: ${{ steps.latest.outputs.tag }}
-          DOWNLOAD_URL: ${{ steps.latest.outputs.download_url }}
+          APP_SLUG: ${{ steps.latest.outputs.app_slug }}
           APK_NAME: ${{ steps.latest.outputs.apk_name }}
+          DOWNLOAD_URL: ${{ steps.latest.outputs.download_url }}
         run: |
           set -euo pipefail
           {
-            echo "## Latest APK"
+            echo "## ${APP_SLUG} development APK"
             echo
-            echo "- **Tag:** \`$TAG\`"
+            echo "- **Release tag:** \`$APP_SLUG\`"
             echo "- **Asset:** \`$APK_NAME\`"
             echo "- **Download:** $DOWNLOAD_URL"
             echo
@@ -88,6 +96,6 @@ jobs:
       - name: Upload QR PNG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: latest-apk-qr
+          name: ${{ inputs.app_slug }}-dev-app-qr
           path: latest-apk-qr.png
           if-no-files-found: error
