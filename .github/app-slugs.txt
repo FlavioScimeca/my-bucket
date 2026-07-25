@@ -1,5 +1,4 @@
 # App slots for this bucket (one slug per line).
-# - Cleanup old releases: keeps each rolling tag listed here, deletes `{slug}-*` history.
-# - Latest APK link + QR: validates the selected app_slug against this list.
+# Used by Latest APK link + QR to validate the selected app_slug.
 vyrel
 placeholder-app
