@@ -2,15 +2,20 @@ name: Cleanup old releases
 
 # Manual only — keeps one rolling release per app slug (e.g. `vyrel`).
 # Deletes older tags for that app (`vyrel-*`) without touching other apps.
-# Allowed slugs: `.github/app-slugs.txt`
+#
+# Keep `app_slug.options` in sync with `.github/app-slugs.txt`
+# (GitHub cannot populate choice options from a file at form time).
 on:
   workflow_dispatch:
     inputs:
       app_slug:
-        description: App slot to clean (must be listed in .github/app-slugs.txt)
+        description: App slot to clean (must also be in .github/app-slugs.txt)
         required: true
         default: vyrel
-        type: string
+        type: choice
+        options:
+          - vyrel
+          - placeholder-app
       delete_legacy_dev_tags:
         description: Also delete legacy timestamp tags like dev-YYYYMMDD-*
         required: true
