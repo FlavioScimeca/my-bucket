@@ -1,18 +1,15 @@
 name: Latest APK link + QR
 
 # Manual only — prints the stable per-app download URL and QR code.
-# When you add a new app slot, append its slug to `app_slug.options` below
-# (and in cleanup-old-releases.yml).
+# Allowed slugs: `.github/app-slugs.txt`
 on:
   workflow_dispatch:
     inputs:
       app_slug:
-        description: App slot / rolling release tag
+        description: App slot / rolling release tag (must be listed in .github/app-slugs.txt)
         required: true
         default: vyrel
-        type: choice
-        options:
-          - vyrel
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +18,13 @@ jobs:
   show-latest:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout app-slugs registry
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github/app-slugs.txt
+          sparse-checkout-cone-mode: false
+
       - name: Resolve per-app download URL
         id: latest
         env:
@@ -32,6 +36,30 @@ jobs:
 
           if [[ ! "$APP_SLUG" =~ ^[a-z][a-z0-9-]*$ ]]; then
             echo "::error::Invalid app_slug: $APP_SLUG"
+            exit 1
+          fi
+
+          mapfile -t ALLOWED < <(
+            grep -E '^[a-z][a-z0-9-]*$' .github/app-slugs.txt || true
+          )
+
+          if [[ ${#ALLOWED[@]} -eq 0 ]]; then
+            echo "::error::No allowed slugs found in .github/app-slugs.txt"
+            exit 1
+          fi
+
+          allowed=false
+          for slug in "${ALLOWED[@]}"; do
+            if [[ "$slug" == "$APP_SLUG" ]]; then
+              allowed=true
+              break
+            fi
+          done
+
+          if [[ "$allowed" != "true" ]]; then
+            echo "::error::app_slug '$APP_SLUG' is not in .github/app-slugs.txt"
+            printf 'Allowed:\n'
+            printf '  - %s\n' "${ALLOWED[@]}"
             exit 1
           fi
 
