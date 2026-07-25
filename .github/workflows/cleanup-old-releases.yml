@@ -1,21 +1,11 @@
 name: Cleanup old releases
 
-# Manual only — keeps one rolling release per app slug (e.g. `vyrel`).
-# Deletes older tags for that app (`vyrel-*`) without touching other apps.
-#
-# Keep `app_slug.options` in sync with `.github/app-slugs.txt`
-# (GitHub cannot populate choice options from a file at form time).
+# Manual only — for every slug in `.github/app-slugs.txt`, keeps the rolling
+# release tag and deletes older tags like `{slug}-*`. Optionally also deletes
+# legacy timestamp tags like `dev-YYYYMMDD-*`.
 on:
   workflow_dispatch:
     inputs:
-      app_slug:
-        description: App slot to clean (must also be in .github/app-slugs.txt)
-        required: true
-        default: vyrel
-        type: choice
-        options:
-          - vyrel
-          - placeholder-app
       delete_legacy_dev_tags:
         description: Also delete legacy timestamp tags like dev-YYYYMMDD-*
         required: true
@@ -26,7 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  keep-app-slot:
+  keep-app-slots:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout app-slugs registry
@@ -36,46 +26,25 @@ jobs:
             .github/app-slugs.txt
           sparse-checkout-cone-mode: false
 
-      - name: Delete old releases for app slug
+      - name: Delete old releases for all app slugs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          APP_SLUG: ${{ inputs.app_slug }}
           DELETE_LEGACY: ${{ inputs.delete_legacy_dev_tags }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$APP_SLUG" =~ ^[a-z][a-z0-9-]*$ ]]; then
-            echo "::error::Invalid app_slug: $APP_SLUG"
-            exit 1
-          fi
-
-          mapfile -t ALLOWED < <(
+          mapfile -t APP_SLUGS < <(
             grep -E '^[a-z][a-z0-9-]*$' .github/app-slugs.txt || true
           )
 
-          if [[ ${#ALLOWED[@]} -eq 0 ]]; then
-            echo "::error::No allowed slugs found in .github/app-slugs.txt"
+          if [[ ${#APP_SLUGS[@]} -eq 0 ]]; then
+            echo "::error::No app slugs found in .github/app-slugs.txt"
             exit 1
           fi
 
-          allowed=false
-          for slug in "${ALLOWED[@]}"; do
-            if [[ "$slug" == "$APP_SLUG" ]]; then
-              allowed=true
-              break
-            fi
-          done
-
-          if [[ "$allowed" != "true" ]]; then
-            echo "::error::app_slug '$APP_SLUG' is not in .github/app-slugs.txt"
-            printf 'Allowed:\n'
-            printf '  - %s\n' "${ALLOWED[@]}"
-            exit 1
-          fi
-
-          KEEP_TAG="$APP_SLUG"
-          echo "Keeping rolling release: $KEEP_TAG"
+          echo "App slots to keep (rolling tags):"
+          printf '  - %s\n' "${APP_SLUGS[@]}"
 
           mapfile -t TAGS < <(
             gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName'
@@ -86,14 +55,37 @@ jobs:
             exit 0
           fi
 
+          is_keep_tag() {
+            local tag="$1"
+            local slug
+            for slug in "${APP_SLUGS[@]}"; do
+              if [[ "$tag" == "$slug" ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          is_app_history_tag() {
+            local tag="$1"
+            local slug
+            for slug in "${APP_SLUGS[@]}"; do
+              if [[ "$tag" == "$slug"-* ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
           deleted=0
           for TAG in "${TAGS[@]}"; do
-            if [[ "$TAG" == "$KEEP_TAG" ]]; then
+            if is_keep_tag "$TAG"; then
+              echo "Keeping rolling release: $TAG"
               continue
             fi
 
             should_delete=false
-            if [[ "$TAG" == "$APP_SLUG"-* ]]; then
+            if is_app_history_tag "$TAG"; then
               should_delete=true
             fi
             if [[ "$DELETE_LEGACY" == "true" && "$TAG" == dev-* ]]; then
@@ -105,8 +97,8 @@ jobs:
               gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
               deleted=$((deleted + 1))
             else
-              echo "Skipping (other app or unrelated): $TAG"
+              echo "Skipping (unrelated): $TAG"
             fi
           done
 
-          echo "Done. Kept '$KEEP_TAG'. Deleted $deleted release(s)."
+          echo "Done. Kept rolling tags for ${#APP_SLUGS[@]} app(s). Deleted $deleted release(s)."
