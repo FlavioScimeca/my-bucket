@@ -1,16 +1,9 @@
 name: Cleanup old releases
 
 # Manual only — for every slug in `.github/app-slugs.txt`, keeps the rolling
-# release tag and deletes older tags like `{slug}-*`. Optionally also deletes
-# legacy timestamp tags like `dev-YYYYMMDD-*`.
+# release tag and deletes older tags like `{slug}-*`.
 on:
   workflow_dispatch:
-    inputs:
-      delete_legacy_dev_tags:
-        description: Also delete legacy timestamp tags like dev-YYYYMMDD-*
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -30,7 +23,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          DELETE_LEGACY: ${{ inputs.delete_legacy_dev_tags }}
         run: |
           set -euo pipefail
 
@@ -84,15 +76,7 @@ jobs:
               continue
             fi
 
-            should_delete=false
             if is_app_history_tag "$TAG"; then
-              should_delete=true
-            fi
-            if [[ "$DELETE_LEGACY" == "true" && "$TAG" == dev-* ]]; then
-              should_delete=true
-            fi
-
-            if [[ "$should_delete" == "true" ]]; then
               echo "Deleting release and tag: $TAG"
               gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
               deleted=$((deleted + 1))
