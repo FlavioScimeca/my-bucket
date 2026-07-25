@@ -1,14 +1,18 @@
 name: Latest APK link + QR
 
 # Manual only — prints the stable per-app download URL and QR code.
+# When you add a new app slot, append its slug to `app_slug.options` below
+# (and in cleanup-old-releases.yml).
 on:
   workflow_dispatch:
     inputs:
       app_slug:
-        description: App slot / rolling release tag (e.g. vyrel, kalyra)
+        description: App slot / rolling release tag
         required: true
         default: vyrel
-        type: string
+        type: choice
+        options:
+          - vyrel
 
 permissions:
   contents: read
