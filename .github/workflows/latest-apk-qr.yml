@@ -1,15 +1,20 @@
 name: Latest APK link + QR
 
 # Manual only — prints the stable per-app download URL and QR code.
-# Allowed slugs: `.github/app-slugs.txt`
+#
+# Keep `app_slug.options` in sync with `.github/app-slugs.txt`
+# (GitHub cannot populate choice options from a file at form time).
 on:
   workflow_dispatch:
     inputs:
       app_slug:
-        description: App slot / rolling release tag (must be listed in .github/app-slugs.txt)
+        description: App slot / rolling release tag (must also be in .github/app-slugs.txt)
         required: true
         default: vyrel
-        type: string
+        type: choice
+        options:
+          - vyrel
+          - placeholder-app
 
 permissions:
   contents: read
